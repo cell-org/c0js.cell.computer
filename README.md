@@ -11,29 +11,66 @@ Cell is an NFT collection kit that lets you launch your own NFT collection with 
 
 # Introduction
 
-## 1. What is a Token?
+## 1. How Cell Works
 
-Before we go in, let's first define what a **token** is.
+Cell works like Java, but for NFTs.
 
-### 1.1. Schema
+- **BEFORE CELL:** Most NFT contracts have only ONE way of minting tokens into the contrac. This is because the minting logic is "compiled" into the smart contract code at deployment. This makes the NFT contract inflexible.
+- **AFTER CELL:** Instead of hardcoding the minting logic on the NFT contract, Cell deploys **a virtual machine smart contract (named "C0")**, which has no collection specific logic on its own, but can dynamically interpret commands (called "Script") submitted for each token mint.
+
+![java.png](java.png)
+
+> **NOTE**
+>
+> Learn more about the Cell core technology here: https://cell.computer/#/?id=technology
+
+### 1.1. Virtual machine
+
+Instead of hardcoding the minting logic into the NFT contract, Cell deploys **a virtual machine smart contract (named "C0")**. This contract does not include any collection specific minting logic. The minting logic is supposed to be programmed offchain and submitted at mint time.
+
+### 1.2. Script
+
+The virtual machine's job is to interpret various signed commands submitted from offchain, and decide whether to mint them into onchain tokens or not.
+
+These "signed commands" are called **"script"**.
+
+---
+
+## 2. What is a Script?
+
+Before we go in, let's first define what a **script** is.
+
+### 2.1. Schema
 
 A token is a JSON file made up of the following attributes:
 
 - `body`:
-  - `cid`: the IPFS CID of the metadata that represents this token. The `id` and the `raw` attributes can be deterministically derived from this attribute
+  - `cid`: the IPFS CID of the metadata that represents this token. The `id` and the `encoding` attributes can be deterministically derived from this attribute
   - `id`: tokenId (uint256) derived from the IPFS CID of the metadata
-  - `raw`
-    - `true` if the IPFS encoding of the metadata CID was "raw" type
-    - `false` if the IPFS encoding of the metadata CID was "dag-pb" type
-  - `minter`: who is allowed to mint this token?
-  - `price`: how much needed for minting this token? (in wei)
+  - `encoding`
+    - `0` if the IPFS encoding of the metadata CID was "raw" type. **Most NFT metadata will have an encoding of 0**.
+    - `1` if the IPFS encoding of the metadata CID was "dag-pb" type
+  - `sender`: who is allowed to submit this script to the blokchain to mint the token?
+  - `receiver`: who will receive the token when it's minted? If not specified, whoever submits the sucessful transaction that mints this token will receive the token by default.
+  - `value`: how much needed for minting this token? (in wei)
   - `start`: when does the minting start? (unix timestamp in seconds)
   - `end`: when does this token become invalid for minting? (unix timestamp in seconds)   
   - `royaltyReceiver`: royalty receiver for this token
   - `royaltyAmount`: royalty amount for this token (out of 1,000,000)
   - `merkleHash`: the merkle tree root hash of an address group allowed to mint
-  - `minters`: an array of addresses allowed to mint (used to calculate `merkleHash`)
-  - `puzzleHash`: this token can be minted only if the minter supplies a string that hashes to the `puzzleHash` (sha3)
+  - `puzzleHash`: this token can be minted only if the script submitter supplies a string that hashes to the `puzzleHash` (sha3)
+  - `senders[]`: an array of addresses allowed to submit the script to the blockchain to mint the token (used to calculate `merkleHash`)
+  - `owns[]`: an array of `Token` objects used to describe the NFTs you need to own to be able to mint, where the `Token` object has the following attributes:
+    - `addr`: **(optional)** the NFT contract address. If not specified, it implies the current contract.
+    - `id`: the tokenId of the NFT.
+  - `burned[]`: an array of `Token` objects used to describe the NFTs you need to have burned in order to mint this token, where the `Token` object has the following attributes:
+    - `addr`: **(optional)** the NFT contract address. If not specified, it implies the current contract.
+    - `id`: the tokenId of the NFT.
+  - `balance[]`: an array of `Token` objects used to describes how many tokens you need to own in order to mint this token, where the `Token` object has the following attributes:
+    - `addr`: **(optional)** the contract address. It can either be an **ERC721 (Non Fungible Token)** or an **ERC20 (Fungible Token)** contract. If not specified, it implies the current contract.
+    - `id`: the minimum required balance of the tokens you need to own for the contract.
+      - **ERC721:** how many NFTs from the contract at `addr` you own, regardless of tokenId
+      - **ERC20:** how many ERC20 tokens from the contract at `addr` you own
   - `signature`: the contract owner's signature of all other attributes included in the `body` attribute.
     - if `signature` is not included, it's an "unsigned token".
     - if `signature` is included, it's a "signed token".
@@ -43,22 +80,22 @@ A token is a JSON file made up of the following attributes:
   - `verifyingContract`: the address of the NFT contract
   - `version`: "1" (it's always "1")
 
-### 1.2. Phases
+### 2.2. Phases
 
-Token can have multiple phases
+A tokens goes through multiple phases in its lifecycle.
 
-1. **offchain:** Offchain tokens are not transferrable.
-    1. **unsigned:** unsigned tokens are tokens before authentication. these tokens can't be minted yet but includes all the information.
-    2. **signed:** when an owner of a contract signs an unsigned token, this token can now be minted to the contract.
-2. **onchain:** Onchain tokens are transferrable through the host blockchain.
+1. **offchain:** Offchain scripts (which represent tokens) are NON-transferrable until they are settled on the blockchain.
+    1. **unsigned:** unsigned scripts are tokens before authentication. these tokens can't be minted yet but includes all the information.
+    2. **signed:** when an owner of a contract signs an unsigned script, it attaches a "signature" attribute to the script's body attribute. Then this script can now be minted onto the contract as an onchain token.
+2. **onchain:** Once an offchain script is sent to the C0 onchain virtual machine, the C0 smart contract interprets the script to either mint it or reject it. Once minted, onchain tokens are transferrable over the host blockchain.
 
-For a token to be minted to a contract, the **owner of the contract must always sign the token.** This can happen in various ways. Here are some example scenarios:
+For a script to be minted to a contract, the **owner of the contract must always sign the token.** This can happen in various ways. Here are some example scenarios:
 
 1. Owner publishes NFTs occasionally: The owner can sign their contract 
 2. NFT collection drop: The owner can programmatically sign all tokens in the beginning
 3. On-demand NFT minting app: The service provider may be the owner of a contract, and when a user wants to mint, the server may create and sign a token, and return it to the user, and the user can mint it from their browser.
 
-### 1.3. Example
+### 2.3. Example
 
 ```json
 {
@@ -66,8 +103,9 @@ For a token to be minted to a contract, the **owner of the contract must always 
     cid: cid,
     id: id,
     raw: raw,                           // IPFS encoding (true if raw, false if dag-pb)
-    minter: minter,                     // who is allowed to mint this token?
-    price: price,                       // how much needed for minting this token?
+    sender: sender,                     // who is allowed to submit this script to the blokchain to mint the token?
+    receiver: receiver,                 // who will receive the token when minted?
+    value: value,                       // how much needed for minting this token? (in wei)
     start: start,                       // when does the minting start? (unix timestamp in seconds)
     end: end,                           // when does the minting end? (unix timestamp in seconds)   
     royaltyReceiver: royaltyReceiver    // royalty receiver for this token
@@ -82,13 +120,61 @@ For a token to be minted to a contract, the **owner of the contract must always 
 }
 ```
 
-## 2. Workflow
+---
 
-1. Build: describe a token and its validity condition
-2. Sign: sign the built token and attach the signature to the existing token
-3. Mint: send the signed token to the blockchain to record the ownership
+## 3. What does C0.js do?
+
+C0.js is a JavaScript library that lets you:
+
+### 3.1. Create a Script
+
+Powered by Web3.js internally, C0.js is an easy-to-use JavaScript library that lets you build and sign scripts.
+
+### 3.2. Send a Script to Blockchains
+
+C0.js also lets you submit the signed scripts to the blockchain in order to mint them into onchain tokens
+
+---
+
+## 4. Script Workflow
+
+### 4.1. Build
+
+create an unsigned script by describing its information and the minting condition.
+
+```javascript
+await c0.token.build( . . . )
+```
+
+### 4.2. Sign
+
+the contract owner signs an unsigned script. Once signed, it can be "sent" to the blockchain.
+
+```javascript
+await c0.token.sign( . . . )
+```
+
+### 4.3. Create
+
+The Create action "builds" a script and then "signs" it, creating a signed script.
+
+> **NOTE**
+>
+> In most cases you will just use this method instead of calling "build" and then "sign".
+
+```javascript
+await c0.token.create( . . . )
+```
 
 
+### 4.4. Send
+
+send the signed script to the blockchain to mint it as an onchain token. The token now becomes transferrable.
+
+
+```javascript
+await c0.token.send( . . . )
+```
 
 ---
 
@@ -241,8 +327,9 @@ const unsignedToken = await c0.token.build(description)
 - `description`: has 2 attributes `body` and `domain` (both mandatory)
   - `body`:
     - `cid`: **(required)** the IPFS CID of the token metadata. This is the only mandatory attribute of the `body` attribute.
-    - `minter`: specify a single minter. if not specified, anyone can mint.
-    - `price`: specify the price for the token. if not specified, free mint.
+    - `sender`: specify a single sender who will submit the script to the contract. if not specified, anyone can submit.
+    - `receiver`: specify a single receiver who will receive this token when it's minted. if not specified, whoever submits the successful minting transaction will receive the token.
+    - `value`: specify the value required to submit the script. if not specified, free to submit and mint.
     - `start`: from when is this token valid?
       - if `start` is specified, the token cannot be minted to the host contract until that time.
       - if not specified, it's considered valid anytime, and can be minted to the contract anytime.
@@ -252,8 +339,8 @@ const unsignedToken = await c0.token.build(description)
     - `royaltyReceiver`: the royalty receiver address of this token. whenever a sale is made, NFT marketplaces that follow the EIP-2981 NFT royalty standard will send royalty to this address.
     - `royaltyAmount`: the amount of royalty (out of 1,000,000) the `royaltyReceiver` will receive for each NFT sale.
       - for example, if set as `100,000`, the royalty is 100,000/1,000,000 = 10%.
-    - `minters`: an array of addresses for which the minting of this token is allowed.
-      - when you pass the `minters` array, the `build()` method automatically creates a merkle root of the list and includes it in the returned token as an attribute named `merkleHash`.
+    - `senders`: an array of addresses for which the submission of this script is allowed.
+      - when you pass the `senders` array, the `build()` method automatically creates a merkle root of the list and includes it in the returned token as an attribute named `merkleHash`.
     - `puzzle`: a string that is required for minting.
       - when you pass thte `puzzle` attribute for the `build()` method, it creates a sha3 hash of the `puzzle` string and includes it in the returned token as an attribute named `puzzleHash`. The token DOES NOT include the original `puzzle` string.
       - anyone who can come up with the exact same string that hashes to the resulting `puzzleHash` can mint.
@@ -264,7 +351,7 @@ const unsignedToken = await c0.token.build(description)
 
 ##### return value
 
-- `unsignedToken`: a token object
+- `unsignedToken`: a script object (without a signature)
 
 #### examples
 
@@ -293,7 +380,7 @@ Let's create a token that requires 1ETH payment for minting:
 let unsignedToken = await c0.token.build({
   body: {
     cid: cid,
-    price: 10 ** 18                                         // 10^18wei => 1ETH
+    value: 10 ** 18                                         // 10^18wei => 1ETH
   },
   domain: {
     name: "canvas",                                         // name of the contract
@@ -307,13 +394,13 @@ let unsignedToken = await c0.token.build({
 
 sometimes you want to allow anyone from a group to mint a single token, first come first served basis.
 
-The difference with the `minter` attribute is that the `minter` directly specifies a single address that can mint, whereas `minters` is an array, and anyone from this array can mint but only one will succeed. Here's an example:
+The difference with the `sender` attribute is that the `sender` directly specifies a single address that can mint, whereas `senders` is an array, and anyone from this array can mint but only one will succeed. Here's an example:
 
 ```javascript
 let signedToken = await c0.token.create({
   body: {
     cid: cid,
-    minters: [
+    senders: [
       address0,
       address1,
       address2
@@ -442,14 +529,14 @@ console.log("expected signer = ", c0.account)
 console.log("actual signer = ", signer
 ```
 
-### 2.5. mint()
+### 2.5. send()
 
 put a signed token on the blockchain by sending a transaction
 
 #### syntax
 
 ```javascript
-let tx = await c0.token.mint(signedTokens, proofs, options)
+let tx = await c0.token.send(signedTokens, proofs, options)
 ```
 
 ##### parameters
@@ -481,7 +568,7 @@ let signedToken = await c0.token.create({
     address: "0x6866ed9a183f491024692971a8f78b048fb6b89b"   // contract address
   }
 })
-let tx = await c0.token.mint([signedToken])
+let tx = await c0.token.send([signedToken])
 ```
 
 ##### 2. minting multiple tokens
@@ -508,7 +595,7 @@ let signedToken2 = await c0.token.create({
   }
 })
 // Mint the tokens
-let tx = await c0.token.mint([signedToken1, signedToken2])
+let tx = await c0.token.send([signedToken1, signedToken2])
 ```
 
 ##### 3. hash puzzle gated mint
@@ -529,7 +616,7 @@ let token = await c0.token.create({
   }
 })
 // Mint the hash puzzle protected token by providing the solution
-let tx = await c0.token.mint(
+let tx = await c0.token.send(
   [token],
   [{ puzzle: "top secret" }]
 )
@@ -566,7 +653,7 @@ let token2 = await c0.token.create({
   }
 })
 // Mint the hash puzzle protected token by providing the solution
-let tx = await c0.token.mint(
+let tx = await c0.token.send(
   [token1, token2],
   [null, { puzzle: "top secret" }]
 )
@@ -574,178 +661,45 @@ let tx = await c0.token.mint(
 
 Note that the first item of the `proofs` array is `null` since the `token1` doesn't require any hash puzzle answer to mint.
 
-### 2.6. gift()
+---
 
-The `gift()` method is used to create a gift package. 
 
-> **NOTE**
->
-> The gift() method only CREATES a gift, it does NOT actually give it to the receiver on the blockchain. To give a gift, you must first create a gift using gift() and then pass it to the give() method to write to the blockchain.
+### 2.6. burn()
+
+The `burn()` function lets you burn tokens so they can no longer be transferred.
 
 #### syntax
 
+Takes an `address`, automatically initializes a contract interface for the address, and returns the [web3 contract.methods interface](https://web3js.readthedocs.io/en/v1.2.11/web3-eth-contract.html#id26).
+
 ```javascript
-const gift = await c0.token.gift(body)
+const tx = await c0.token.burn(address, tokenIds)
 ```
 
 ##### parameters
 
-- `body`: the token description
-  - `cid`: **(required)** the token metadata IPFS CID
-  - `receiver`: **(required)** the intended receiver address of this gift
-  - `royaltyReceiver`: the royalty receiver address once the token is minted on the blockchain
-  - `royaltyAmount`: the royalty amount (out of 1,000,000) for the `royaltyReceiver`
+- `address`: the contract address
+- `tokenIds`: an array of tokenIds to burn. You must own all of them, otherwise the transaction will fail.
 
 ##### return value
 
-- `gift`: the gift object. A gift object can be directly submitted to the blockchain to be minted as an onchain token. A gift object is made up of the following attributes:
-  - `cid`: the IPFS CID of the token metadata
-  - `id`: the tokenId (derived from the IPFS CID of the token metadata)
-  - `raw`: is the metadata encoded in "raw" format or "dag-pb"?
-    - `true` if the IPFS encoding of the metadata CID was "raw" type
-    - `false` if the IPFS encoding of the metadata CID was "dag-pb" type
-  - `receiver`: the receiver address
-  - `royaltyReceiver`: the royalty receiver address
-  - `royaltyAmount`: the royalty share amount for the royalty receiver.
+- `tx`: the transaction receipt
 
 #### examples
 
-##### 1. a simple gift
-
-The following code creates a token that points to a JSON metadata file at `ipfs://bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y`, which can only be sent to the receiver `0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41`:
-
 ```javascript
-const gift = await c0.token.gift({
-  cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y",
-  receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"
-})
-```
-
-##### 2. a gift with royalty attached
-
-The following code creates the same gift but with a royalty attached.
-
-
-```javascript
-const gift = await c0.token.gift({
-  cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y",
-  receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41",
-  royaltyReceiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41",
-  royaltyAmount: 10 ** 5  // 10^5 out of 10^6 is 10% royalty
-})
-```
-
-Things to note:
-
-1. `receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"`: This gift can only go to the address 0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41
-2. `royaltyReceiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"`: The royalty receiver is the same as the token receiver in this case. But you could also set it as someone else.
-3. `royaltyAmount: 10 ** 5` is 10% of the 1,000,000, so the royalty percentage is 10%
-
-### 2.7. give()
-
-The `give()` method actually "gives" a constructed token to the receiver by broadcasting to the blockchain.
-
-> NOTE
->
-> The `give()` method can ONLY be called by the OWNER of the NFT contract.
-
-#### syntax
-
-```javascript
-const tx = await c0.token.give(gifts, domain)
-```
-
-##### parameters
-
-- `gifts`: an array of gift items constructed by `gift()`. Each constructed gift object contains the following attributes:
-  - `id`: tokenId (uint256) derived from the IPFS CID of the metadata
-  - `raw`
-    - `true` if the IPFS encoding of the metadata CID was "raw" type
-    - `false` if the IPFS encoding of the metadata CID was "dag-pb" type
-  - `receiver`: the receiver of the gift
-  - `royaltyReceiver`: royalty receiver for this token
-  - `royaltyAmount`: royalty amount for this token (out of 1,000,000)
-- `domain`: the context in which the token is valid. The domain must contain at least the two following attributes:
-  - `address`: the contract address
-  - `chainId`: the chainId of the host contract (1 for mainnet, 4 for rinkeby, etc.)
-
-
-##### return value
-
-- `tx`: the web3 transaction object after the transaction goes through
-
-#### examples
-
-##### 1. simple gifting
-
-Let's create a simple gift token and give it to someone
-
-```javascript
-const gift = await c0.token.gift({
-  cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y",
-  receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"
-})
-const tx = await c0.token.give([gift], {
-  chainId: 1,                                             // mainnet
-  address: "0x6866ed9a183f491024692971a8f78b048fb6b89b"   // contract address
-})
-```
-
-##### 2. gifting multiple tokens
-
-Let's create multiple tokens and gift them:
-
-```javascript
-// Create gift1
-const gift1 = await c0.token.gift({
-  cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y",
-  receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"
-})
-// Create gift2
-const gift2 = await c0.token.gift({
-  cid: "bafkreia3xjsrgbayzwm37hxvtg5o7vj6lrwmiidsjiorl5jiqykwo4jema",
-  receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"
-})
-// Send the gifts
-const tx = await c0.token.give(
-  [gift1, gift2],
-  {
-    chainId: 1,                                             // mainnet
-    address: "0x6866ed9a183f491024692971a8f78b048fb6b89b"   // contract address
-  }
+const tx = await c0.token.burn(
+  "0x51f814dc24174c0b9a4cffaddeb16b4cdb439841",                                     // the contract address
+  ["39131010058045797349567233885970132483291053977504436574875345706679852652030"] // tokenId to delete
 )
 ```
 
-#### examples
 
-##### 1. create a token and find its tokenURI
-
-```javascript
-let token = await c0.token.create({
-  body: { cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y" },
-  domain: {
-    name: "canvas",                                         // name of the contract
-    chainId: 1,                                             // mainnet
-    address: "0x6866ed9a183f491024692971a8f78b048fb6b89b"   // contract address
-  }
-})
-let tokenURI = c0.token.tokenURI(token.body)                // must pass the "body" attribute
-```
-
-##### 2. compute tokenURI from tokenId and encoding info
-
-If you already have a tokenId and know its encoding format (it's either "raw" or "dag-pb"), you can compute the corresponding CID from the tokenId:
-
-```javascript
-let tokenURI = c0.token.tokenURI({
-  id: "40998503179700036819161489644228823734474704898021613579603985084791771131720",
-  raw: true
-})
-```
+---
 
 
 
-### 2.8. methods()
+### 2.7. methods()
 
 The `methods()` function lets you access the low level web3 contract methods in all platforms (browser & node.js).
 
@@ -783,12 +737,175 @@ let owner = await contract_methods.ownerOf(tokenId).call()
 ```
 
 
+---
+
+## 3. gift
+
+### 3.1. create()
+
+The `gift.create()` method is used to create a gift package. 
+
+> **NOTE**
+>
+> The create() method only CREATES a gift, it does NOT actually give it to the receiver on the blockchain. To give a gift onchain, you must first create a gift using gift.create() and then pass it to the gift.send() method to send it to the blockchain.
+
+#### syntax
+
+```javascript
+const gift = await c0.gift.create(description)
+```
+
+##### parameters
+
+- `description`: The gift description
+  - `body`: the gift body
+    - `cid`: **(required)** the token metadata IPFS CID
+    - `receiver`: **(required)** the intended receiver address of this gift
+    - `royaltyReceiver`: the royalty receiver address once the token is minted on the blockchain
+    - `royaltyAmount`: the royalty amount (out of 1,000,000) for the `royaltyReceiver`
+  - `domain`: the domain for which the gift is valid
+    - `address`: the contract address
+    - `chainId`: the chainId of the host blockchain
+
+##### return value
+
+- `gift`: the gift object. A gift object can be directly submitted to the blockchain to be minted as an onchain token. A gift object is made up of 2 attributes:
+  - `body`: the gift body object, which includes the following attributes:
+    - `cid`: the IPFS CID of the token metadata
+    - `id`: the tokenId (derived from the IPFS CID of the token metadata)
+    - `encoding`: is the metadata encoded in "raw" format or "dag-pb"?
+      - `0` if the IPFS encoding of the metadata CID was "raw" type. **Most NFT metadata will have an encoding of 0**.
+      - `1` if the IPFS encoding of the metadata CID was "dag-pb" type
+    - `receiver`: the receiver address
+    - `royaltyReceiver`: the royalty receiver address
+    - `royaltyAmount`: the royalty share amount for the royalty receiver.
+  - `domain`: the context in which the token is valid. The domain must contain at least the two following attributes:
+    - `verifyingContract`: the contract address
+    - `chainId`: the chainId of the host contract (1 for mainnet, 4 for rinkeby, etc.)
+
+#### examples
+
+##### 1. a simple gift
+
+The following code creates a token that points to a JSON metadata file at `ipfs://bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y`, which can only be sent to the receiver `0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41`:
+
+```javascript
+const gift = await c0.gift.create({
+  cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y",
+  receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"
+})
+```
+
+##### 2. a gift with royalty attached
+
+The following code creates the same gift but with a royalty attached.
+
+
+```javascript
+const gift = await c0.gift.create({
+  cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y",
+  receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41",
+  royaltyReceiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41",
+  royaltyAmount: 10 ** 5  // 10^5 out of 10^6 is 10% royalty
+})
+```
+
+Things to note:
+
+1. `receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"`: This gift can only go to the address 0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41
+2. `royaltyReceiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"`: The royalty receiver is the same as the token receiver in this case. But you could also set it as someone else.
+3. `royaltyAmount: 10 ** 5` is 10% of the 1,000,000, so the royalty percentage is 10%
+
+### 3.2. send()
+
+The `send()` method actually "gives" a constructed token to the receiver by broadcasting to the blockchain.
+
+> NOTE
+>
+> The `send()` method can ONLY be called by the OWNER of the NFT contract.
+
+#### syntax
+
+```javascript
+const tx = await c0.gift.send(gifts)
+```
+
+##### parameters
+
+- `gifts`: an array of gift items constructed by `gift()`. Each constructed gift object contains the 2 attributes:
+  - `body`: The gift body objct with the following attributes:
+    - `id`: tokenId (uint256) derived from the IPFS CID of the metadata
+    - `raw`
+      - `0` if the IPFS encoding of the metadata CID was "raw" type. **Most NFT metadata will have an encoding of 0**.
+      - `1` if the IPFS encoding of the metadata CID was "dag-pb" type
+    - `receiver`: the receiver of the gift
+    - `royaltyReceiver`: royalty receiver for this token
+    - `royaltyAmount`: royalty amount for this token (out of 1,000,000)
+  - `domain`: the context in which the token is valid. The domain must contain at least the two following attributes:
+    - `verifyingContract`: the contract address
+    - `chainId`: the chainId of the host contract (1 for mainnet, 4 for rinkeby, etc.)
+
+##### return value
+
+- `tx`: the web3 transaction object after the transaction goes through
+
+#### examples
+
+##### 1. simple gifting
+
+Let's create a simple gift token and give it to someone
+
+```javascript
+const gift = await c0.gift.create({
+  body: {
+    cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y",
+    receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"
+  },
+  domain: {
+    chainId: 1,                                             // mainnet
+    address: "0x6866ed9a183f491024692971a8f78b048fb6b89b"   // contract address
+  }
+})
+const tx = await c0.gift.send([gift])
+```
+
+##### 2. gifting multiple tokens
+
+Let's create multiple tokens and gift them:
+
+```javascript
+// Create gift1
+const gift1 = await c0.gift.create({
+  body: {
+    cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y",
+    receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"
+  },
+  domain: {
+    chainId: 1,                                             // mainnet
+    address: "0x6866ed9a183f491024692971a8f78b048fb6b89b"   // contract address
+  }
+})
+// Create gift2
+const gift2 = await c0.gift.create({
+  body: {
+    cid: "bafkreia3xjsrgbayzwm37hxvtg5o7vj6lrwmiidsjiorl5jiqykwo4jema",
+    receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"
+  },
+  domain: {
+    chainId: 1,                                             // mainnet
+    address: "0x6866ed9a183f491024692971a8f78b048fb6b89b"   // contract address
+  }
+})
+// Send the gifts
+const tx = await c0.gift.send([gift1, gift2])
+```
+
 
 ---
 
-## 3. collection
+## 4. collection
 
-### 3.1. create()
+### 4.1. create()
 
 #### how cell collections work
 
@@ -874,7 +991,7 @@ Of course, you can enter any other index (such as 420, 10000, etc.) as long as y
 
 But then it will be hard for you to manage all your collections since you won't easily know which index is available. It is recommended that you keep incrementing the index as you deploy more contracts.
 
-### 3.2. find()
+### 4.2. find()
 
 As explained in the ["how cell collections work"](#how-cell-collections-work) section, every address has a pre-determined set of contract addresses even before the contracts are deployed.
 
@@ -950,11 +1067,11 @@ const collections = await c0.collection.find({
 
 ---
 
-## 4. util
+## 5. util
 
 A utility module that includes convenience methods
 
-### 4.1. cid()
+### 5.1. cid()
 
 compute the IPFS CID of any data WITHOUT storing to IPFS.
 
@@ -1008,14 +1125,14 @@ const cid = await c0.util.cid(image)
 
 
 
-### 4.2. verify()
+### 5.2. verify()
 
 Given a `token.body` object or a `gift` object, verify the overall structure is valid when submitted to the blockchain.
 
 3. checks that the `id` attribute exists
-4. checks that the `raw` attribute exists
+4. checks that the `encoding` attribute exists
 5. checks that the `cid` attribute exists
-6. checks the `id` and `raw` against the `cid` attribute to make sure they are equivalent.
+6. checks the `id` and `encoding` against the `cid` attribute to make sure they are equivalent.
 
 #### syntax
 
@@ -1028,7 +1145,7 @@ let isvalid = c0.util.verify(body, verbose)
 - `body`: A data object that contains the following attributes:
   - `cid`: the IPFS CID
   - `id`: the UINT256 tokenId derived from the `cid`
-  - `raw`: the encoding (`true` for raw encoding, `false` for dag-pb) used by the `cid`, also can be derived from the `cid`
+  - `encoding`: the encoding (`0` for raw encoding, `1` for dag-pb encoding) used by the `cid`, also can be derived from the `cid`
 - `verbose`: **(optional)** if set to `true`, will throw an exception when invalid, instead of returning `false`.
 
 The `body` can be one of the following:
@@ -1054,7 +1171,7 @@ The `body` can be one of the following:
 const token = await c0.token.create({ cid: cid })
 let isvalid = c0.util.verify(token.body)
 if (isvalid) {
-  let tx = await c0.token.mint([token])
+  let tx = await c0.token.send([token])
 } else {
   alert("token is invalid")
 }
@@ -1075,9 +1192,9 @@ if (isvalid) {
 }
 ```
 
-### 4.3. solve()
+### 5.3. solve()
 
-Solve a puzzle locally to make sure the solution is correct, without having to call the `mint()` method.
+Solve a puzzle locally to make sure the solution is correct, without having to call the `send()` method.
 
 #### syntax
 
