@@ -11,6 +11,9 @@ body {
 .sidebar {
   color: rgba(0,0,0,0.8);
 }
+.sidebar li {
+  margin: 0;
+}
 .sidebar ul li a {
   color: rgba(0,0,0,0.8);
 }
@@ -19,7 +22,7 @@ body {
   border-right: 5px solid;
 }
 .markdown-section {
-  max-width: 800px;
+  max-width: 1000px;
   margin: 20px;
 }
 .markdown-section code, .markdown-section pre {

@@ -42,7 +42,7 @@ Before we go in, let's first define what a **script** is.
 
 ### 2.1. Schema
 
-A token is a JSON file made up of the following attributes:
+A Cell Script is a JSON file made up of the following attributes:
 
 - `body`:
   - `cid`: the IPFS CID of the metadata that represents this token. The `id` and the `encoding` attributes can be deterministically derived from this attribute
@@ -57,20 +57,28 @@ A token is a JSON file made up of the following attributes:
   - `end`: when does this token become invalid for minting? (unix timestamp in seconds)   
   - `royaltyReceiver`: royalty receiver for this token
   - `royaltyAmount`: royalty amount for this token (out of 1,000,000)
-  - `merkleHash`: the merkle tree root hash of an address group allowed to mint
+  - `relations`: an array of `relation` objects that describe the relationship between an ERC20/ERC721 contract and the sender or the receiver.
+    - Each `relation` object has the following attributes:
+      - `code`: relationshp code. Here is the full list:
+        - `0`: "burned by sender".
+          - created when you call `c0.token.build()` with `burned: [{ who: "sender", .. }]`
+        - `1`: "burned by receiver".
+          - created when you call `c0.token.build()` with `burned: [{ who: "receiver", .. }]`
+        - `2`: "owned by sender".
+          - created when you call `c0.token.build()` with `owns: [{ who: "sender", .. }]`
+        - `3`: "owned by receiver".
+          - created when you call `c0.token.build()` with `owns: [{ who: "receiver", .. }]`
+        - `4`: "balance for sender".
+          - created when you call `c0.token.build()` with `balance: [{ who: "sender", .. }]`
+        - `5`: "balance for receiver".
+          - created when you call `c0.token.build()` with `balance: [{ who: "receiver", .. }]`
+      - `addr`: **(optional)** the contract address in question. If omitted, the relation refers to the current NFT contract (the cell contract)
+      - `id`: UINT256 type identifier. 
+        - if the `code` is `0`, `1`, `2`, or `3`, the `id` refers to a tokenId
+        - if the `code` is `4` or `5`, the `id` refers to a balance amount
+  - `sendersHash`: the merkle tree root hash of the address group allowed to mint (senders)
+  - `receiversHash`: the merkle tree root hash of the address group allowed to receive the tokens when minted (receivers)
   - `puzzleHash`: this token can be minted only if the script submitter supplies a string that hashes to the `puzzleHash` (sha3)
-  - `senders[]`: an array of addresses allowed to submit the script to the blockchain to mint the token (used to calculate `merkleHash`)
-  - `owns[]`: an array of `Token` objects used to describe the NFTs you need to own to be able to mint, where the `Token` object has the following attributes:
-    - `addr`: **(optional)** the NFT contract address. If not specified, it implies the current contract.
-    - `id`: the tokenId of the NFT.
-  - `burned[]`: an array of `Token` objects used to describe the NFTs you need to have burned in order to mint this token, where the `Token` object has the following attributes:
-    - `addr`: **(optional)** the NFT contract address. If not specified, it implies the current contract.
-    - `id`: the tokenId of the NFT.
-  - `balance[]`: an array of `Token` objects used to describes how many tokens you need to own in order to mint this token, where the `Token` object has the following attributes:
-    - `addr`: **(optional)** the contract address. It can either be an **ERC721 (Non Fungible Token)** or an **ERC20 (Fungible Token)** contract. If not specified, it implies the current contract.
-    - `id`: the minimum required balance of the tokens you need to own for the contract.
-      - **ERC721:** how many NFTs from the contract at `addr` you own, regardless of tokenId
-      - **ERC20:** how many ERC20 tokens from the contract at `addr` you own
   - `signature`: the contract owner's signature of all other attributes included in the `body` attribute.
     - if `signature` is not included, it's an "unsigned token".
     - if `signature` is included, it's a "signed token".
@@ -79,6 +87,35 @@ A token is a JSON file made up of the following attributes:
   - `chainId`: chainId (1 for Ethereum, 4 for rinkeby, etc.)
   - `verifyingContract`: the address of the NFT contract
   - `version`: "1" (it's always "1")
+
+
+Each attribute under the `body` attribute is an **OPCODE** responsible for one of the following:
+
+1. Token related information:
+    - `cid`: unique metadata IPFS cid
+    - `id`: UINT256 version of the `cid`
+    - `encoding`: the IPFS cid encoding type (0 for raw, 1 for dag-pb)
+    - `royaltyReceiver`: royalty receiver of the token according to EIP-2981
+    - `royaltyAmount`: royalty amount of the token according to EIP-2981
+2. Token minting condition
+    - `sender`: who is allowed to submit the transaction?
+    - `receiver`: who is receiving the NFT when minted?
+    - `value`: how much is being paid to the contract?
+    - `start`: when does the minting start for this script?
+    - `end`: when does the minting expire for this script?
+    - `relations`: various relationship conditions between ERC20/ERC721 contracts and the ownership/burnership/balance of the sender or receiver
+    - `sendersHash`: which group of addresses can submit the transaction?
+    - `receiversHash`: which group of addresses are allowed to receive the NFTs?
+    - `puzzleHash`: hash puzzle
+    - `signature`: all of the above must be signed with a correct signature
+3. Additional information (stripped out when submitting to the blockchain)
+    - `senders`: The senders address array. used to derive the `sendersHash`
+    - `receivers`: The receivers address array. used to derive the `receiversHash`
+
+When you send the Script to the corresponding Cell contract, it will only turn into an onchain NFT when ALL of the minting conditions are valid (AND operation).
+
+And when the token is authorized, it gets minted with the token related information.
+
 
 ### 2.2. Phases
 
@@ -100,22 +137,33 @@ For a script to be minted to a contract, the **owner of the contract must always
 ```json
 {
   body: {
-    cid: cid,
-    id: id,
-    raw: raw,                           // IPFS encoding (true if raw, false if dag-pb)
-    sender: sender,                     // who is allowed to submit this script to the blokchain to mint the token?
-    receiver: receiver,                 // who will receive the token when minted?
-    value: value,                       // how much needed for minting this token? (in wei)
-    start: start,                       // when does the minting start? (unix timestamp in seconds)
-    end: end,                           // when does the minting end? (unix timestamp in seconds)   
-    royaltyReceiver: royaltyReceiver    // royalty receiver for this token
-    royaltyAmount: royaltyAmount        // royalty amount for this token (out of 1,000,000)
+    cid: 'bafkreidp7hmki7w7xmqkjvhue4alz5ee2v37gnp5zzrhocu2uu44s3z52i',                     // IPFS CID
+    id: '50648166323875933313620295029185224500465321024666306112907109293759281446354',    // tokenId (derived from IPFS CID)
+    encoding: 0,                                                                            // IPFS encoding (0 if raw, 1 if dag-pb)
+    sender: '0x0000000000000000000000000000000000000000',                                   // Only allow this sender to mint. If 0x0, anyone can mint.
+    receiver: '0x0000000000000000000000000000000000000000',                                 // Only allow this receiver to receive the minted token. If 0x0, anyone can receive.
+    value: '0',                                                                             // Required ETH amount to mint
+    start: '0',                                                                             // Start time from which minting is allowed. Unix timestamp (in seconds)
+    end: '18446744073709551615',                                                            // End time when minting is no longer allowed. Unix timestamp (in seconds)
+    royaltyReceiver: '0x0000000000000000000000000000000000000000',                          // EIP-2981 royalty receiver address
+    royaltyAmount: '0',                                                                     // EIP-2981 royalty amount for the receiver address (out of 1,000,000)
+    relations: [{                                                                           // Minting condition in relation to other contracts (ERC721 or ERC20) or the current contract ownership/burnership
+      code: 0,
+      addr: "0x123A66Be1A490129757Deb9F981095342700967d",
+      id: 1
+    }],
+    senders: [],                                                                            // Allowed sender addresses array
+    sendersHash: '0x0000000000000000000000000000000000000000000000000000000000000000',      // Merkle root hash derived from the senders array
+    receiversHash: '0x571bd6531c244f7f35ed229bb1f74435a6c453289578c1861dbeed8ab10af973',    // Merkle root hash derived from the receivers array
+    receivers: [ '0xFb7b2717F7a2a30B42e21CEf03Dd0fC76Ef761E9' ],                            // Allowed receiver addresses array
+    puzzleHash: '0x0000000000000000000000000000000000000000000000000000000000000000',       // Hash puzzle solution
+    signature: '0x1f1fca2f0b3c635d8cd6ed3258c5b8497a283e58472ce57e1cc09f095906f5790e96bc2509f17a17e4ba61bf664502bc87332fb9f5510bee46612717b8d505921c',
   },
   domain: {
-    name: contract_name,
-    chainId: chainId,
-    verifyingContract: contract_address,
-    version: "1"
+    name: 'straberry',                                                                      // Contract name
+    chainId: 4,                                                                             // Blockchain chainId (1 for ETH, 4 for Rinkeby, etc.)
+    verifyingContract: '0x50069b692a72f6c7a94651896324db31803a001f',                        // Contract address
+    version: '1'
   }
 }
 ```
@@ -327,27 +375,45 @@ const unsignedToken = await c0.token.build(description)
 - `description`: has 2 attributes `body` and `domain` (both mandatory)
   - `body`:
     - `cid`: **(required)** the IPFS CID of the token metadata. This is the only mandatory attribute of the `body` attribute.
-    - `sender`: specify a single sender who will submit the script to the contract. if not specified, anyone can submit.
-    - `receiver`: specify a single receiver who will receive this token when it's minted. if not specified, whoever submits the successful minting transaction will receive the token.
     - `value`: specify the value required to submit the script. if not specified, free to submit and mint.
-    - `start`: from when is this token valid?
-      - if `start` is specified, the token cannot be minted to the host contract until that time.
+    - `start`: from what time (UNIX timestamp in seconds) is this script valid?
+      - if the `start` is specified, the script cannot be minted to the host contract until that time.
       - if not specified, it's considered valid anytime, and can be minted to the contract anytime.
-    - `end`: until when is this token valid?
-      - if `end` is specified, trying to mint to the host contract after that time will fail.
-      - if not specified, it's valid anytime, and can be minted to the contract anytime.
+    - `end`: until what time (UNIX timestamp in seconds) does this script expire?
+      - if the `end` is specified, trying to mint to the host contract after that time will fail.
+      - if not specified, it's valid anytime forever, and can be minted to the contract anytime.
     - `royaltyReceiver`: the royalty receiver address of this token. whenever a sale is made, NFT marketplaces that follow the EIP-2981 NFT royalty standard will send royalty to this address.
     - `royaltyAmount`: the amount of royalty (out of 1,000,000) the `royaltyReceiver` will receive for each NFT sale.
       - for example, if set as `100,000`, the royalty is 100,000/1,000,000 = 10%.
-    - `senders`: an array of addresses for which the submission of this script is allowed.
-      - when you pass the `senders` array, the `build()` method automatically creates a merkle root of the list and includes it in the returned token as an attribute named `merkleHash`.
     - `puzzle`: a string that is required for minting.
       - when you pass thte `puzzle` attribute for the `build()` method, it creates a sha3 hash of the `puzzle` string and includes it in the returned token as an attribute named `puzzleHash`. The token DOES NOT include the original `puzzle` string.
       - anyone who can come up with the exact same string that hashes to the resulting `puzzleHash` can mint.
+    - `sender`: specify a single sender who is allowed to submit the script to the contract. if not specified, anyone can submit.
+    - `receiver`: specify a single receiver to whom the NFT will be sent when minted. if not specified, anyone can receive (decided when calling `c0.token.send()` later)
+    - `senders[]`: an array of addresses allowed to submit the script to the blockchain to mint the token
+      - when you pass the `senders` array, the `build()` method automatically creates a merkle root of the list and includes it in the returned token as an attribute named `sendersHash`.
+    - `receivers[]`: an array of addresses allowed to RECEIVE the minted token (The actual receiver will be determined when the script is submitted via `c0.token.send()`, and must be included in the `receivers` array)
+      - when you pass the `receivers` array, the `build()` method automatically creates a merkle root of the list and includes it in the returned token as an attribute named `receiversHash`.
+    - `owns[]`: an array of `Relation` objects used to describe the NFTs required to be owned by either the sender or the receiver in order to mint.
+      - The `Relation` object has the following attributes:
+        - `who`: **"sender"** or **"receiver"**.
+        - `where`: **(optional)** the NFT contract address. If not specified, it implies the current contract.
+        - `what`: the tokenId of the NFT.
+    - `burned[]`: an array of `Relation` objects used to describe the NFTs required to have been burnt either by the sender or the receiver in order to mint the token.
+      - The `Rleation` object has the following attributes:
+        - `who`: **"sender"** or **"receiver"**
+        - `where`: **(optional)** the NFT contract address. If not specified, it implies the current contract.
+        - `what`: the tokenId of the NFT.
+    - `balance[]`: an array of `Relation` objects used to describes how many tokens are required to be owned by either the sender or the receiver in order to mint this token.
+      - The `Relation` object has the following attributes:
+        - `who`: **"sender"** or **"receiver"**
+        - `where`: **(optional)** the contract address. It can either be an **ERC721 (Non Fungible Token)** or an **ERC20 (Fungible Token)** contract. If not specified, it implies the current contract.
+        - `what`: the minimum required balance of the tokens you need to own for the contract.
   - `domain`
     - `name`: the name of the NFT contract to mint to
     - `chainId`: the chainId of the host blockchain to mint to
     - `address`: the contract to mint to
+
 
 ##### return value
 
@@ -536,14 +602,15 @@ put a signed token on the blockchain by sending a transaction
 #### syntax
 
 ```javascript
-let tx = await c0.token.send(signedTokens, proofs, options)
+let tx = await c0.token.send(signedTokens, inputs, options)
 ```
 
 ##### parameters
 
 - `signedTokens`: **(required)** An array of signed tokens, each created by calling `create()` (or by calling `build()` and then `sign()`)
-- `proofs`: An array of proofs for the tokens. Only needed when at least one of the `signedTokens` has a `puzzleHash` attribute. You can leave as empty if your mint does not make use of the `puzzle` feature. A proof currently supports one type of attribute:
+- `inputs`: An array of dynamic inputs for the tokens. at least one of the `signedTokens` has a `puzzleHash` attribute, or if you want to specify a `receiver` who will receive the token when minted. You can leave as empty if your mint does not make use of the `puzzle` or the `receiver` feature. An input currently supports two attributes:
   - `puzzle`: The solution to the hash puzzle. This must hash to the same hash as the `token.body.puzzleHash` for the token to successfully mint.
+  - `receiver`: The receiver who will receive this token when minted (instead of the user submitting the transaction). Will be ignored if the `token.body` already includes a `receiver` attribute.
 - `options`: In case you want to customize the options used for sending the transaction (https://web3js.readthedocs.io/en/v1.2.11/web3-eth-contract.html#id33)
 
 ##### return value
