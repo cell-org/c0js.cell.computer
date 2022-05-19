@@ -489,6 +489,29 @@ let signedToken = await c0.token.create({
 })
 ```
 
+##### 4. mint with royalty
+
+Let's create a token that can be minted by anyone for free, first come first served.
+
+First, we assume that we already know the domain information. You can find the domain JSON for your contract at [cell.computer dashboard](https://cell.computer)
+
+```javascript
+let unsignedToken = await c0.token.build({
+  body: {
+    cid: cid,
+    royalty: {
+      where: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"   // royalty receiver address,
+      what: 10 ** 5                                         // 10%
+    }
+  },
+  domain: {
+    name: "canvas",                                         // name of the contract
+    chainId: 1,                                             // mainnet
+    address: "0x6866ed9a183f491024692971a8f78b048fb6b89b"   // contract address
+  }
+})
+```
+
 
 ### 2.2. sign()
 
