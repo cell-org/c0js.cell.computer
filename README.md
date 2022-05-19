@@ -55,11 +55,9 @@ A Cell Script is a JSON file made up of the following attributes:
   - `value`: how much needed for minting this token? (in wei)
   - `start`: when does the minting start? (unix timestamp in seconds)
   - `end`: when does this token become invalid for minting? (unix timestamp in seconds)   
-  - `royaltyReceiver`: royalty receiver for this token
-  - `royaltyAmount`: royalty amount for this token (out of 1,000,000)
-  - `relations`: an array of `relation` objects that describe the relationship between an ERC20/ERC721 contract and the sender or the receiver.
+  - `relations`: an array of `relation` objects that describe the relationship with an external address
     - Each `relation` object has the following attributes:
-      - `code`: relationshp code. Here is the full list:
+      - `code`: relationship code. Here is the full list:
         - `0`: "burned by sender".
           - created when you call `c0.token.build()` with `burned: [{ who: "sender", .. }]`
         - `1`: "burned by receiver".
@@ -72,10 +70,19 @@ A Cell Script is a JSON file made up of the following attributes:
           - created when you call `c0.token.build()` with `balance: [{ who: "sender", .. }]`
         - `5`: "balance for receiver".
           - created when you call `c0.token.build()` with `balance: [{ who: "receiver", .. }]`
-      - `addr`: **(optional)** the contract address in question. If omitted, the relation refers to the current NFT contract (the cell contract)
+        - `10`: "mint revenue split"
+          - when you specify `value` to create a script and send ETH to mint a token, the money goes to the Cell contract by default. However you can also specify one or more addresses that will receive the ETH being sent for the mint.
+          - created when you call `c0.token.build()` with `payments: [{ where: <receiver_address>, what: <integer value out of 1,000,000> }]`
+        - `11` "royalty specification"
+          - describes the royalty information tied to this token when minted
+      - `addr`:
+        - if the `code` is `0`, `1`, `2`, `3`, `4`, or `5`: **(optional)**. the contract address in question. If omitted, the relation refers to the current NFT contract (the cell contract)
+        - if the `code` is `10` or `11`: **(required)** the recipient address (In case of royalty, the royalty receiver.  In case of "mint revenue split", the mint revenue receiver)
       - `id`: UINT256 type identifier. 
         - if the `code` is `0`, `1`, `2`, or `3`, the `id` refers to a tokenId
         - if the `code` is `4` or `5`, the `id` refers to a balance amount
+        - if the `code` is `10`, the `id` refers to a value between 0 and 1,000,000 that represents how much (percentage) of the `value` will be sent to the `addr` (receiver address)
+        - if the `code` is `11`, the `id` refers to a value between 0 and 1,000,000 that represents how much (percentage) of each royalty payout for this token will go to the `addr` (royaltyReceiver)
   - `sendersHash`: the merkle tree root hash of the address group allowed to mint (senders)
   - `receiversHash`: the merkle tree root hash of the address group allowed to receive the tokens when minted (receivers)
   - `puzzleHash`: this token can be minted only if the script submitter supplies a string that hashes to the `puzzleHash` (sha3)
@@ -95,15 +102,13 @@ Each attribute under the `body` attribute is an **OPCODE** responsible for one o
     - `cid`: unique metadata IPFS cid
     - `id`: UINT256 version of the `cid`
     - `encoding`: the IPFS cid encoding type (0 for raw, 1 for dag-pb)
-    - `royaltyReceiver`: royalty receiver of the token according to EIP-2981
-    - `royaltyAmount`: royalty amount of the token according to EIP-2981
 2. Token minting condition
     - `sender`: who is allowed to submit the transaction?
     - `receiver`: who is receiving the NFT when minted?
     - `value`: how much is being paid to the contract?
     - `start`: when does the minting start for this script?
     - `end`: when does the minting expire for this script?
-    - `relations`: various relationship conditions between ERC20/ERC721 contracts and the ownership/burnership/balance of the sender or receiver
+    - `relations`: various relationship descriptions between the token and external addresses (ERC20/ERC721 contracts, minting revenue receivers, or royalty receivers)
     - `sendersHash`: which group of addresses can submit the transaction?
     - `receiversHash`: which group of addresses are allowed to receive the NFTs?
     - `puzzleHash`: hash puzzle
@@ -145,8 +150,6 @@ For a script to be minted to a contract, the **owner of the contract must always
     value: '0',                                                                             // Required ETH amount to mint
     start: '0',                                                                             // Start time from which minting is allowed. Unix timestamp (in seconds)
     end: '18446744073709551615',                                                            // End time when minting is no longer allowed. Unix timestamp (in seconds)
-    royaltyReceiver: '0x0000000000000000000000000000000000000000',                          // EIP-2981 royalty receiver address
-    royaltyAmount: '0',                                                                     // EIP-2981 royalty amount for the receiver address (out of 1,000,000)
     relations: [{                                                                           // Minting condition in relation to other contracts (ERC721 or ERC20) or the current contract ownership/burnership
       code: 0,
       addr: "0x123A66Be1A490129757Deb9F981095342700967d",
@@ -382,9 +385,6 @@ const unsignedToken = await c0.token.build(description)
     - `end`: until what time (UNIX timestamp in seconds) does this script expire?
       - if the `end` is specified, trying to mint to the host contract after that time will fail.
       - if not specified, it's valid anytime forever, and can be minted to the contract anytime.
-    - `royaltyReceiver`: the royalty receiver address of this token. whenever a sale is made, NFT marketplaces that follow the EIP-2981 NFT royalty standard will send royalty to this address.
-    - `royaltyAmount`: the amount of royalty (out of 1,000,000) the `royaltyReceiver` will receive for each NFT sale.
-      - for example, if set as `100,000`, the royalty is 100,000/1,000,000 = 10%.
     - `puzzle`: a string that is required for minting.
       - when you pass thte `puzzle` attribute for the `build()` method, it creates a sha3 hash of the `puzzle` string and includes it in the returned token as an attribute named `puzzleHash`. The token DOES NOT include the original `puzzle` string.
       - anyone who can come up with the exact same string that hashes to the resulting `puzzleHash` can mint.
@@ -409,6 +409,15 @@ const unsignedToken = await c0.token.build(description)
         - `who`: **"sender"** or **"receiver"**
         - `where`: **(optional)** the contract address. It can either be an **ERC721 (Non Fungible Token)** or an **ERC20 (Fungible Token)** contract. If not specified, it implies the current contract.
         - `what`: the minimum required balance of the tokens you need to own for the contract.
+    - `royalty`: EIP-2981 royalty description
+      - `where`: the royalty receiver address of this token. whenever a sale is made, NFT marketplaces that follow the EIP-2981 NFT royalty standard will send royalty to this address.
+      - `what`: the amount of royalty (out of 1,000,000) the `royaltyReceiver` will receive for each NFT sale.
+        - for example, if set as `100,000`, the royalty is 100,000/1,000,000 = 10%.
+    - `payments[]`: an array of `Payment` objects used to describe how much of the ETH sent for each minting will go to the member addresses. If not specified, the contract gets all the money. Each `Payment` object looks like this:
+      - `where`: the receiver address that will receive a portion of the payment sent for minting this token.
+      - `what`: the portion (out of 1,000,000) of ETH that will be sent to the `where` address for the mint.
+        - for example, let's imagine that the `what` was set as `300,000` and the `where` was set as `0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41`. This means the receiver address `0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41` will get `300,000 / 1,000,000 = 30%` of the minting revenue for this token. So if the NFT cost **1ETH**, the `0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41` address will get **0.3ETH**, and the Cell contract will get **0.7ETH**.
+        - another example, if there were 2 items in the payments array, where the first item's `what` was 200,000 and the second one `400,000`, this means the first address will get 20% and the second address will get 40%, therefore the Cell contract will naturally get the rest, which is 40%.
   - `domain`
     - `name`: the name of the NFT contract to mint to
     - `chainId`: the chainId of the host blockchain to mint to
@@ -828,8 +837,9 @@ const gift = await c0.gift.create(description)
   - `body`: the gift body
     - `cid`: **(required)** the token metadata IPFS CID
     - `receiver`: **(required)** the intended receiver address of this gift
-    - `royaltyReceiver`: the royalty receiver address once the token is minted on the blockchain
-    - `royaltyAmount`: the royalty amount (out of 1,000,000) for the `royaltyReceiver`
+    - `royalty`: EIP-2981 royalty declaration
+      - `where`: the royalty receiver address once the token is minted on the blockchain
+      - `what`: the royalty amount (out of 1,000,000) for the receiver `where`. for example if it's `300,000`, it means the receiver will get `300,000 / 1,000,000 = 30%` royalty
   - `domain`: the domain for which the gift is valid
     - `address`: the contract address
     - `chainId`: the chainId of the host blockchain
@@ -844,8 +854,10 @@ const gift = await c0.gift.create(description)
       - `0` if the IPFS encoding of the metadata CID was "raw" type. **Most NFT metadata will have an encoding of 0**.
       - `1` if the IPFS encoding of the metadata CID was "dag-pb" type
     - `receiver`: the receiver address
-    - `royaltyReceiver`: the royalty receiver address
-    - `royaltyAmount`: the royalty share amount for the royalty receiver.
+    - `relations`: an empty array if no `royalty` was specified. If there was a `royalty` information passed in, this will be made of a single item array with the following attributes:
+      - `code`: `11` (as defined in the token script schema)
+      - `addr`: the royalty receiver address
+      - `id`: the royalty share amount for the royalty receiver.
   - `domain`: the context in which the token is valid. The domain must contain at least the two following attributes:
     - `verifyingContract`: the contract address
     - `chainId`: the chainId of the host contract (1 for mainnet, 4 for rinkeby, etc.)
@@ -872,16 +884,18 @@ The following code creates the same gift but with a royalty attached.
 const gift = await c0.gift.create({
   cid: "bafkreicwqno6pzrospmpufqigjj6dn7ylo7si5reajybci22n55evjgv7y",
   receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41",
-  royaltyReceiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41",
-  royaltyAmount: 10 ** 5  // 10^5 out of 10^6 is 10% royalty
+  royalty: {
+    where: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41",
+    what: 10 ** 5  // 10^5 out of 10^6 is 10% royalty
+  }
 })
 ```
 
 Things to note:
 
 1. `receiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"`: This gift can only go to the address 0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41
-2. `royaltyReceiver: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"`: The royalty receiver is the same as the token receiver in this case. But you could also set it as someone else.
-3. `royaltyAmount: 10 ** 5` is 10% of the 1,000,000, so the royalty percentage is 10%
+2. `royalty.where: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"`: The royalty receiver is the same as the token receiver in this case. But you could also set it as someone else.
+3. `royalty.what: 10 ** 5` is 10% of the 1,000,000, so the royalty percentage is 10%
 
 ### 3.2. send()
 
@@ -906,8 +920,10 @@ const tx = await c0.gift.send(gifts)
       - `0` if the IPFS encoding of the metadata CID was "raw" type. **Most NFT metadata will have an encoding of 0**.
       - `1` if the IPFS encoding of the metadata CID was "dag-pb" type
     - `receiver`: the receiver of the gift
-    - `royaltyReceiver`: royalty receiver for this token
-    - `royaltyAmount`: royalty amount for this token (out of 1,000,000)
+    - `relations`: a `Relations` array. In this case just a single item array made up of one Relation object, with the following attributes
+      - `code`: `11` (as defined in the token script schema)
+      - `addr`: royalty receiver for this token
+      - `id`: royalty amount for this token (out of 1,000,000)
   - `domain`: the context in which the token is valid. The domain must contain at least the two following attributes:
     - `verifyingContract`: the contract address
     - `chainId`: the chainId of the host contract (1 for mainnet, 4 for rinkeby, etc.)
