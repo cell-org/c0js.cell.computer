@@ -769,7 +769,7 @@ Estimate the gas cost for `c0.token.send()`. Get the gas estimate without actual
 #### syntax
 
 ```javascript
-let gas = await c0.token.send(signedTokens, inputs, options)
+let gas = await c0.token.estimate(signedTokens, inputs, options)
 ```
 
 ##### parameters
