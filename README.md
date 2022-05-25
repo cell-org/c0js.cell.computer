@@ -762,8 +762,33 @@ Note that the first item of the `proofs` array is `null` since the `token1` does
 
 ---
 
+### 2.6. estimate()
 
-### 2.6. burn()
+Estimate the gas cost for `c0.token.send()`. Get the gas estimate without actually creating a transaction.
+
+#### syntax
+
+```javascript
+let gas = await c0.token.send(signedTokens, inputs, options)
+```
+
+##### parameters
+
+Same parameters as the [c0.token.send()](#_25-send)
+
+##### return value
+
+- `gas`: the estimated gas
+
+Or, throws an error message with the following attributes:
+
+- `code`: error code
+- `message`: the error message from the smart contract
+
+
+---
+
+### 2.7. burn()
 
 The `burn()` function lets you burn tokens so they can no longer be transferred.
 
@@ -798,7 +823,7 @@ const tx = await c0.token.burn(
 
 
 
-### 2.7. methods()
+### 2.8. methods()
 
 The `methods()` function lets you access the low level web3 contract methods in all platforms (browser & node.js).
 
