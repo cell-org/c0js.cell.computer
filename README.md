@@ -277,6 +277,7 @@ await c0.init(initObject, force)
 - `initObject`
   - `web3`: an initialized web3 object
   - `key`: **(optional)** private key hex string (only needed in non-browser setting)
+  - `chain`: **(optional)** If specified, the `init()` method will throw an error and halt if the currently connected network does not match the specified `chain` value (learn more about chainIds here: https://chainlist.org/).
 - `force`: **(optional)** if `true`, initialize the `c0` instance even if it no key is provided AND it fails to discover a browser wallet. By default it's `false`.
 
 ##### return value
@@ -309,7 +310,31 @@ await c0.init({
 });
 ```
 
-##### c. force initialize
+##### c. specify a network to connect to
+
+By default C0.js will attempt to connect to whichever blockchain network is currently connected to thw wallet.
+
+This can be dangerous if you have deployed contracts on multiple networks, as users may unintentionally send transactions to whichever network they're connected to at the moment.
+
+For example, if your contract is deployed to both Ethereum mainnet and Rinkeby testnet, and a minter is currently connected to Rinkeby testnet, the minter may mint an NFT on Rinkeby thinking he's minted the token on Ethereum mainnet. Or vice versa.
+
+To avoid this situation, you may want to restrict the network the `c0js` instance connects to:
+
+```javascript
+const web3 = new Web3()
+const c0 = new C0()
+try {
+  await c0.init({
+    web3: web3,
+    chain: 4        // connect to rinkeby network (see https://chainlist.org/chain/4)
+  })
+} catch (e) {
+  alert(e.message)  // If connected to a different network, display an alert
+  return            // and avoid executing any further logic
+}
+```
+
+##### d. force initialize
 
 sometimes you just want to initialize a c0 object just to make use of the C0 library features without having to connect to a wallet. In this case you can pass `force: true`.
 
@@ -333,6 +358,7 @@ const web3 = new Web3()
 const c0 = new C0()
 await c0.init({ web3: web3, force: true })
 ```
+
 
 ### 1.2. web3
 
