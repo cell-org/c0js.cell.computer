@@ -1098,8 +1098,8 @@ const tx = await c0.collection.create(info, options)
 
 - `info`: describes the contract information
   - `factory`: the factory contract address. you can use the following addresses:
-    - Ethereum mainnet: `0x468342E4dECa1B34b3a1524E23e7f97fC31eE402`
-    - Rinkeby testnet: `0xbAfC33dDC111D11b2CDC2dA0004B5514E92Aa4E4`
+    - Ethereum mainnet: `0x99Ba4B0aA5dD3fa399Ce04aCa79459AcE1c0460c`
+    - Rinkeby testnet: `0x99Ba4B0aA5dD3fa399Ce04aCa79459AcE1c0460c`
   - `index`: the contract index (recommended to create from 0, 1, 2, ...)
   - `name`: the NFT contract name
   - `symbol`: the NFT contract symbol
@@ -1124,7 +1124,7 @@ Since this is your first time, you can use your "contract #0" (index 0) to deplo
 
 ```javascript
 const tx = await c0.collection.create({
-  factory: "0x468342E4dECa1B34b3a1524E23e7f97fC31eE402" // this is the mainnet factory
+  factory: "0x99Ba4B0aA5dD3fa399Ce04aCa79459AcE1c0460c" // this is the factory address
   index: 0,
   name: "My first NFT contract",
   symbol: "FIRST"
@@ -1137,7 +1137,7 @@ If you wanted to deploy another one, the `index: 0` won't work anymore since it'
 
 ```javascript
 const tx = await c0.collection.create({
-  factory: "0x468342E4dECa1B34b3a1524E23e7f97fC31eE402" // this is the mainnet factory
+  factory: "0x99Ba4B0aA5dD3fa399Ce04aCa79459AcE1c0460c" // this is the factory address
   index: 1,
   name: "My second NFT contract",
   symbol: "SECOND"
@@ -1176,11 +1176,11 @@ const collections = await c0.collection.find(query)
 
 - `query`: describes the condition to search for
   - `factory`: the factory contract address
-    - Ethereum mainnet: `0x468342E4dECa1B34b3a1524E23e7f97fC31eE402`
-    - Rinkeby testnet: `0xbAfC33dDC111D11b2CDC2dA0004B5514E92Aa4E4`
+    - Ethereum mainnet: `0x99Ba4B0aA5dD3fa399Ce04aCa79459AcE1c0460c`
+    - Rinkeby testnet: `0x99Ba4B0aA5dD3fa399Ce04aCa79459AcE1c0460c`
   - `implementation`: the implementation contract address
-    - Ethereum mainnet: `0x9f6AEe303FD26c9d561597560B3e6B0E91118dB3`
-    - Rinkeby testnet: `0x9265953CbA4747111051e47021520eDEEa456d7e`
+    - Ethereum mainnet: `0x39344f6b5c0ffa0ff279ecdfc4c2409f528b19d0`
+    - Rinkeby testnet: `0x39344f6b5c0ffa0ff279ecdfc4c2409f528b19d0`
   - `creator`: the creator address. can be anyone's address.
   - `start`: the contract start index to filter from (within the creator's namespace)
   - `count`: the number of results to return
@@ -1198,8 +1198,8 @@ This example returns the first 100 collections (from index 0 to index 99) for th
 
 ```javascript
 const collections = await c0.collection.find({
-  factory: "0x468342E4dECa1B34b3a1524E23e7f97fC31eE402",          // mainnet factory
-  implementation: "0x9f6AEe303FD26c9d561597560B3e6B0E91118dB3",   // mainnet implementation
+  factory: "0x99Ba4B0aA5dD3fa399Ce04aCa79459AcE1c0460c",          // mainnet factory
+  implementation: "0x39344f6b5c0ffa0ff279ecdfc4c2409f528b19d0",   // mainnet implementation
   creator: "0x502b2FE7Cc3488fcfF2E16158615AF87b4Ab5C41"
   start: 0,
   count: 100
@@ -1213,8 +1213,8 @@ sometimes you may want to automatically detect the user's account and find that 
 ```javascript
 const account = c0.account;     // currently logged-in user is stored at c0.account
 const collections = await c0.collection.find({
-  factory: "0x468342E4dECa1B34b3a1524E23e7f97fC31eE402",          // mainnet factory
-  implementation: "0x9f6AEe303FD26c9d561597560B3e6B0E91118dB3",   // mainnet implementation
+  factory: "0x99Ba4B0aA5dD3fa399Ce04aCa79459AcE1c0460c",          // mainnet factory
+  implementation: "0x39344f6b5c0ffa0ff279ecdfc4c2409f528b19d0",   // mainnet implementation
   creator: account,                                               // current account
   start: 0,
   count: 100
