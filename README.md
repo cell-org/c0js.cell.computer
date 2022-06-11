@@ -1280,9 +1280,113 @@ const image = await fs.promises.readFile("favicon.ico")
 const cid = await c0.util.cid(image)
 ```
 
+### 5.2. ctoi()
+
+Turns a `CID` into its `(id, encoding)` pair.
+
+> **NOTE**
+>
+> In most cases when you're dealing with NFT metadata, the "encoding" will be 0, but sometimes if your metadata is huge the encoding may be 1.
+
+#### syntax
+
+```javascript
+let result = c0.util.ctoi(cid)
+```
+
+##### parameters
+
+- `cid`: The IPFS v1 CID (This is the only way C0.js generates IPFS CIDs)
+
+##### return value
+
+- `result`
+  - `id`: The converted Cell tokenId
+  - `encoding`: The converted IPFS encoding (0 for "raw", 1 for "dag-pb")
+
+#### example
+
+```javascript
+let result = c0.util.ctoi("bafkreiet3e44dbwcebeipbye56gy4m3ipssjbmarrz5sz4mfiowmeo56su")
+console.log("tokenId", result.id)    // prints "tokenId 66873793171800248244516196649613231247736404523076502481759488587065083018901"
+console.log("encoding", result.encoding)   // prints "encoding 0"
+```
+
+### 5.3. itoc()
+
+Turns a `(id, encoding)` pair into `CID` (where "id" is the Cell tokenId)
+
+#### syntax
+
+```javascript
+let cid = c0.util.itoc(id, encoding)
+```
+
+> **NOTE**
+>
+> In most cases when you're dealing with NFT metadata, the "encoding" will be 0 (raw encoding), **which means it can be omitted most of the times**.
+>
+> but sometimes if your metadata is huge, you may have to pass 1 (dag-pb encoding) as the encoding parameter
 
 
-### 5.2. verify()
+##### parameters
+
+- `id`: The `id` of a token (or the universal cell tokenId)
+- `encoding`: **(optional)** the encoding. `0` for "raw encoding" (for small data, such as NFT metadata), `1` for "dag-pb encoding". **In most cases your encoding will be 0 for metadata, so you can just omit this (or pass 0)**
+
+##### return value
+
+- `cid`: The coverted IPFS CID
+
+#### examples
+
+##### Simple example
+
+```javascript
+let cid = c0.util.itoc("66873793171800248244516196649613231247736404523076502481759488587065083018901")
+console.log("cid", cid)   // prints "bafkreiet3e44dbwcebeipbye56gy4m3ipssjbmarrz5sz4mfiowmeo56su"
+```
+
+##### Edge case with encoding 1
+
+Sometimes your metadata may be huge and the generated CID for your metadata may end up using the `dag-pb` encoding (1) instead of `raw` (0).
+
+In this case you must explicitly pass the encoding code `1` to get the correct CID.
+
+```javascript
+// get the cid of a huge metadata JSON
+let large_metadata_cid = c0.util.cid({
+  name: "big metadata",
+  description: "this will have A LOT of attributes",
+  attributes: [{
+    triat_type: "trait 1",
+    value: "value1"
+  }, {
+    ...
+  }, {
+    trait_type: "trait 10000000000",
+    value: "value 10000000000",
+  }]
+})
+// build a token script
+let script = c0.token.build({
+  domain: {
+    name: 'straberry',
+    chainId: 4,
+    address: '0x50069b692a72f6c7a94651896324db31803a001f',
+  },
+  body: {
+    cid: large_metadata_cid
+  }
+})
+// now take the generated script's id (tokenId) and encoding (probably encoded as dag-pb therefore 1) and compute the CID
+let cid = c0.util.itoc(script.body.id, script.body.encoding)
+
+// check that the computed cid matches the generated token script CID
+console.log("matching?", cid === script.body.cid)
+```
+
+### 5.4. verify()
 
 Given a `token.body` object or a `gift` object, verify the overall structure is valid when submitted to the blockchain.
 
@@ -1349,7 +1453,7 @@ if (isvalid) {
 }
 ```
 
-### 5.3. solve()
+### 5.5. solve()
 
 Solve a puzzle locally to make sure the solution is correct, without having to call the `send()` method.
 
